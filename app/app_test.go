@@ -5,22 +5,23 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/gorilla/mux"
-	_ "github.com/mattn/go-sqlite3"
 )
 
-func executeRequest(req *http.Request, create bool) *httptest.ResponseRecorder {
+const TestDBName = "Test.sqlitedb"
+
+func executeRequest(req *http.Request, emptydb bool) *httptest.ResponseRecorder {
 	rr := httptest.NewRecorder()
 	a := App{}
-	err := a.Initialize("Test.sqlitedb")
+	err := a.Initialize(TestDBName)
 	clearTable(a.Database)
-	if create {
+	if !emptydb {
 		p := Person{
-			ID:        1,
+			id:        1,
 			FirstName: "Test",
 			LastName:  "Name",
 			Email:     "Test.Name@example.com",
@@ -33,259 +34,8 @@ func executeRequest(req *http.Request, create bool) *httptest.ResponseRecorder {
 	}
 	a.addHandles()
 	a.Router.ServeHTTP(rr, req)
-
+	os.Remove(TestDBName)
 	return rr
-}
-
-func TestIndex(t *testing.T) {
-	tests := []struct {
-		request      string
-		expectedCode int
-	}{
-		{
-			request:      "/",
-			expectedCode: 200,
-		},
-		{
-			request:      "/NonExistantHandle",
-			expectedCode: 404,
-		},
-	}
-	for _, tt := range tests {
-		req, _ := http.NewRequest("GET", tt.request, nil)
-		response := executeRequest(req, true)
-		if tt.expectedCode != response.Code {
-			t.Errorf("Expected response code %d. Got %d\n", tt.expectedCode, response.Code)
-		}
-	}
-}
-
-func TestNotAllowed(t *testing.T) {
-	tests := []struct {
-		request      string
-		method       string
-		expectedCode int
-	}{
-		{
-			request:      "/people",
-			method:       "GET",
-			expectedCode: 200,
-		},
-		{
-			request:      "/people",
-			method:       "POST",
-			expectedCode: 405,
-		},
-		{
-			request:      "/people",
-			method:       "DELETE",
-			expectedCode: 405,
-		},
-		{
-			request:      "/people",
-			method:       "PUT",
-			expectedCode: 405,
-		},
-		{
-			request:      "/people",
-			method:       "UPDATE",
-			expectedCode: 405,
-		},
-	}
-	for _, tt := range tests {
-		req, _ := http.NewRequest(tt.method, tt.request, nil)
-		response := executeRequest(req, true)
-		if tt.expectedCode != response.Code {
-			t.Errorf("Expected response code %d. Got %d\n", tt.expectedCode, response.Code)
-		}
-	}
-}
-
-func TestApp_CreatePersonForm(t *testing.T) {
-	tests := []struct {
-		request      string
-		expectedCode int
-	}{
-		{
-			request:      "/people/create",
-			expectedCode: 200,
-		},
-	}
-	for _, tt := range tests {
-		req, _ := http.NewRequest("GET", tt.request, nil)
-		response := executeRequest(req, true)
-		if tt.expectedCode != response.Code {
-			t.Errorf("Expected response code %d. Got %d\n", tt.expectedCode, response.Code)
-		}
-	}
-}
-
-// func TestApp_UpdatePersonForm(t *testing.T) {
-// 	tests := []struct {
-// 		request      string
-// 		expectedCode int
-// 		nonempty     bool
-// 	}{
-// 		{
-// 			request:      "/people/1/update",
-// 			expectedCode: 200,
-// 			nonempty:     true,
-// 		},
-// 		{
-// 			request:      "/people/1/update/",
-// 			expectedCode: 404,
-// 			nonempty:     false,
-// 		},
-// 	}
-// 	for _, tt := range tests {
-// 		req, _ := http.NewRequest("GET", tt.request, nil)
-// 		response := executeRequest(req, tt.nonempty)
-// 		if tt.expectedCode != response.Code {
-// 			t.Errorf("Expected response code %d. Got %d\n", tt.expectedCode, response.Code)
-// 		}
-// 	}
-// }
-
-func TestApp_GetPeople(t *testing.T) {
-	tests := []struct {
-		request      string
-		expectedCode int
-		nonempty     bool
-	}{
-		{
-			request:      "/people",
-			expectedCode: 200,
-			nonempty:     true,
-		},
-		{
-			request:      "/people",
-			expectedCode: 200,
-			nonempty:     false,
-		},
-	}
-	for _, tt := range tests {
-		req, _ := http.NewRequest("GET", tt.request, nil)
-		response := executeRequest(req, true)
-		if tt.expectedCode != response.Code {
-			t.Errorf("Expected response code %d. Got %d\n", tt.expectedCode, response.Code)
-		}
-	}
-}
-
-func TestApp_GetPerson(t *testing.T) {
-	tests := []struct {
-		request      string
-		expectedCode int
-		nonempty     bool
-	}{
-		{
-			request:      "/people/1",
-			expectedCode: 200,
-			nonempty:     true,
-		},
-		{
-			request:      "/people/1",
-			expectedCode: 404,
-			nonempty:     false,
-		},
-		{
-			request:      "/people/99",
-			expectedCode: 404,
-			nonempty:     true,
-		},
-	}
-	for _, tt := range tests {
-		req, _ := http.NewRequest("GET", tt.request, nil)
-		response := executeRequest(req, tt.nonempty)
-		if tt.expectedCode != response.Code {
-			t.Errorf("Expected response code %d. Got %d\n", tt.expectedCode, response.Code)
-		}
-	}
-}
-func TestApp_CreatePerson(t *testing.T) {
-	tests := []struct {
-		request      string
-		form         url.Values
-		expectedCode int
-		nonempty     bool
-	}{
-		{
-			request: "/people/1",
-			form: url.Values{
-				"id":    []string{"1"},
-				"fname": []string{"Test"},
-				"lname": []string{"User"},
-				"email": []string{"TestUser@example.com"},
-				"phone": []string{"987-654-3210"},
-			},
-			expectedCode: 409,
-			nonempty:     true,
-		},
-		{
-			request: "/people/1",
-			form: url.Values{
-				"id":    []string{"1"},
-				"fname": []string{"Test"},
-				"lname": []string{"User"},
-				"email": []string{"TestUser@example.com"},
-				"phone": []string{"987-654-3210"},
-			},
-			expectedCode: 200,
-			nonempty:     false,
-		},
-		{
-			request: "/people/2",
-			form: url.Values{
-				"id":    []string{"2"},
-				"fname": []string{"Test"},
-				"lname": []string{"User 2"},
-				"email": []string{"TestUser2@example.com"},
-				"phone": []string{"987-654-3210"},
-			},
-			expectedCode: 200,
-			nonempty:     true,
-		},
-	}
-	for _, tt := range tests {
-		req, _ := http.NewRequest("POST", tt.request, nil)
-		req.PostForm = tt.form
-		req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
-		response := executeRequest(req, tt.nonempty)
-		if tt.expectedCode != response.Code {
-			t.Errorf("Expected response code %d. Got %d\n", tt.expectedCode, response.Code)
-		}
-	}
-}
-
-func TestApp_DeletePerson(t *testing.T) {
-	tests := []struct {
-		request      string
-		expectedCode int
-		nonempty     bool
-	}{
-		{
-			request:      "/people/1",
-			expectedCode: 200,
-			nonempty:     true,
-		},
-		{
-			request:      "/people/1",
-			expectedCode: 200,
-			nonempty:     false,
-		},
-		{
-			request:      "/people/99",
-			expectedCode: 200,
-			nonempty:     true,
-		},
-	}
-	for _, tt := range tests {
-		req, _ := http.NewRequest("DELETE", tt.request, nil)
-		response := executeRequest(req, tt.nonempty)
-		if tt.expectedCode != response.Code {
-			t.Errorf("Expected response code %d. Got %d\n", tt.expectedCode, response.Code)
-		}
-	}
 }
 
 func TestApp_Initialize(t *testing.T) {
@@ -327,5 +77,392 @@ func TestApp_Initialize(t *testing.T) {
 			}
 			os.Remove(tt.args.dbname)
 		})
+	}
+}
+
+func TestApp_ReadPeople(t *testing.T) {
+	tests := []struct {
+		request      string
+		method       string
+		expectedCode int
+		emptydb      bool
+	}{
+		{
+			request:      "/people",
+			method:       "GET",
+			expectedCode: 200,
+		},
+		{
+			request:      "/people",
+			method:       "GET",
+			expectedCode: 500,
+			emptydb:      true,
+		},
+		{
+			request:      "/people",
+			method:       "POST",
+			expectedCode: 405,
+		},
+		{
+			request:      "/people",
+			method:       "DELETE",
+			expectedCode: 405,
+		},
+		{
+			request:      "/people",
+			method:       "PUT",
+			expectedCode: 405,
+		},
+		{
+			request:      "/people",
+			method:       "UPDATE",
+			expectedCode: 405,
+		},
+	}
+	for _, tt := range tests {
+		log.Printf("%v %v %v", tt.method, tt.request, tt.emptydb)
+		req, _ := http.NewRequest(tt.method, tt.request, nil)
+		response := executeRequest(req, tt.emptydb)
+		if tt.expectedCode != response.Code {
+			t.Errorf("Expected response code %d. Got %d\n", tt.expectedCode, response.Code)
+		}
+	}
+}
+
+func TestApp_CreatePerson(t *testing.T) {
+	tests := []struct {
+		request      string
+		body         string
+		expectedCode int
+		emptydb      bool
+	}{
+		{
+			request: "/person/1",
+			body: `{
+				"FirstName": "Test",
+				"LastName": "User",
+				"Email": "TestUser@example.com",
+				"Phone": "987-654-3210"
+			}`,
+			expectedCode: 409,
+		},
+		{
+			request: "/person/1",
+			body: `{
+				"FirstName": "Test",
+				"LastName": "User",
+				"Email": "TestUser@example.com",
+				"Phone": "987-654-3210"
+			}`,
+			expectedCode: 200,
+			emptydb:      true,
+		},
+		{
+			request: "/person/2",
+			body: `{
+				"FirstName": "Test",
+				"LastName": "User 2",
+				"Email": "TestUser@example.com",
+				"Phone": "987-654-3210"
+			}`,
+			expectedCode: 200,
+		},
+		{
+			request:      "/person/2",
+			body:         `BadJson`,
+			expectedCode: 500,
+		},
+		{
+			request: "/person",
+			body: `{
+				"FirstName": "Test",
+				"LastName": "User 2",
+				"Email": "TestUser@example.com",
+				"Phone": "987-654-3210"
+			}`,
+			expectedCode: 200,
+		},
+		{
+			request: "/person/9223372036854775808",
+			body: `{
+				"FirstName": "Test",
+				"LastName": "User 2",
+				"Email": "TestUser@example.com",
+				"Phone": "987-654-3210"
+			}`,
+			expectedCode: 409,
+		},
+	}
+	for _, tt := range tests {
+		buf := strings.NewReader(tt.body)
+		req, _ := http.NewRequest("POST", tt.request, buf)
+		response := executeRequest(req, tt.emptydb)
+		if tt.expectedCode != response.Code {
+			t.Errorf("Expected response code %d. Got %d\n", tt.expectedCode, response.Code)
+		}
+	}
+}
+
+func TestApp_ReadPerson(t *testing.T) {
+	tests := []struct {
+		request      string
+		expectedCode int
+		emptydb      bool
+	}{
+		{
+			request:      "/person/1",
+			expectedCode: 200,
+		},
+		{
+			request:      "/person/1",
+			expectedCode: 404,
+			emptydb:      true,
+		},
+		{
+			request:      "/person/99",
+			expectedCode: 404,
+		},
+		{
+			request:      "/person/9223372036854775809",
+			expectedCode: 409,
+		},
+	}
+	for _, tt := range tests {
+		req, _ := http.NewRequest("GET", tt.request, nil)
+		response := executeRequest(req, tt.emptydb)
+		if tt.expectedCode != response.Code {
+			t.Errorf("Expected response code %d. Got %d\n", tt.expectedCode, response.Code)
+		}
+	}
+}
+
+func TestApp_UpdatePerson(t *testing.T) {
+	tests := []struct {
+		request      string
+		body         string
+		expectedCode int
+		emptydb      bool
+	}{
+		{
+			request: "/person/1",
+			body: `{
+				"FirstName": "Test",
+				"LastName": "User",
+				"Email": "TestUser@example.com",
+				"Phone": "987-654-3210"
+			}`,
+			expectedCode: 200,
+		},
+		{
+			request: "/person/1",
+			body: `{
+				"FirstName": "Test",
+				"LastName": "User",
+				"Email": "TestUser@example.com",
+				"Phone": "987-654-3210"
+			}`,
+			expectedCode: 404,
+			emptydb:      true,
+		},
+		{
+			request: "/person/2",
+			body: `{
+				"FirstName": "Test",
+				"LastName": "User 2",
+				"Email": "TestUser@example.com",
+				"Phone": "987-654-3210"
+			}`,
+			expectedCode: 404,
+		},
+		{
+			request:      "/person/2",
+			body:         `BadJson`,
+			expectedCode: 500,
+		},
+		{
+			request:      "/person/9223372036854775809",
+			body:         ``,
+			expectedCode: 409,
+		},
+	}
+	for _, tt := range tests {
+		buf := strings.NewReader(tt.body)
+		req, _ := http.NewRequest("PUT", tt.request, buf)
+		response := executeRequest(req, tt.emptydb)
+		if tt.expectedCode != response.Code {
+			t.Errorf("Expected response code %d. Got %d\n", tt.expectedCode, response.Code)
+		}
+	}
+}
+
+func TestApp_UpdatePatchPerson(t *testing.T) {
+	tests := []struct {
+		request      string
+		body         string
+		expectedCode int
+		emptydb      bool
+	}{
+		{
+			request: "/person/1",
+			body: `{
+				"FirstName": "Test",
+				"LastName": "User",
+				"Email": "TestUser@example.com",
+				"Phone": "987-654-3210"
+			}`,
+			expectedCode: 200,
+		},
+		{
+			request: "/person/1",
+			body: `{
+				"FirstName": "Test",
+				"LastName": "User",
+				"Email": "TestUser@example.com",
+				"Phone": "987-654-3210"
+			}`,
+			expectedCode: 404,
+			emptydb:      true,
+		},
+		{
+			request: "/person/2",
+			body: `{
+				"FirstName": "Test",
+				"LastName": "User 2",
+				"Email": "TestUser@example.com",
+				"Phone": "987-654-3210"
+			}`,
+			expectedCode: 404,
+		},
+		{
+			request:      "/person/2",
+			body:         `BadJson`,
+			expectedCode: 500,
+		},
+		{
+			request:      "/person/9223372036854775809",
+			body:         ``,
+			expectedCode: 409,
+		},
+	}
+	for _, tt := range tests {
+		buf := strings.NewReader(tt.body)
+		req, _ := http.NewRequest("PATCH", tt.request, buf)
+		response := executeRequest(req, tt.emptydb)
+		if tt.expectedCode != response.Code {
+			t.Errorf("Expected response code %d. Got %d\n", tt.expectedCode, response.Code)
+		}
+	}
+}
+
+func TestApp_DeletePerson(t *testing.T) {
+	tests := []struct {
+		request      string
+		expectedCode int
+		emptydb      bool
+	}{
+		{
+			request:      "/person/1",
+			expectedCode: 200,
+		},
+		{
+			request:      "/person/1",
+			expectedCode: 200,
+			emptydb:      true,
+		},
+		{
+			request:      "/person/99",
+			expectedCode: 200,
+		},
+		{
+			request:      "/person/9223372036854775809",
+			expectedCode: 409,
+		},
+	}
+	for _, tt := range tests {
+		req, _ := http.NewRequest("DELETE", tt.request, nil)
+		response := executeRequest(req, tt.emptydb)
+		if tt.expectedCode != response.Code {
+			t.Errorf("Expected response code %d. Got %d\n", tt.expectedCode, response.Code)
+		}
+	}
+}
+func TestApp_Import(t *testing.T) {
+	tests := []struct {
+		method       string
+		request      string
+		body         string
+		expectedCode int
+		emptydb      bool
+	}{
+		{
+			method:  "POST",
+			request: "/import",
+			body: `FirstName,LastName,Email,Phone
+Person 1,Smith,email@example.com,123-456-7890
+Person 2,Smith,email@example.com,123-456-7890
+Person 3,Smith,email@example.com,123-456-7890
+Person 4,Smith,email@example.com,123-456-7890
+`,
+			expectedCode: 200,
+		},
+		{
+			method:  "POST",
+			request: "/import",
+			body: `FirstName,LastName,Email,Phone
+Person 1,Smith,email@example.com,123-456-7890
+Person 2,Smith,email@example.com,123-456-7890
+Person 3,Smith,email@example.com,123-456-7890
+Person 4,Smith,email@example.com,123-456-7890
+`,
+			expectedCode: 200,
+			emptydb:      true,
+		},
+		{
+			method:       "POST",
+			request:      "/import",
+			body:         "",
+			expectedCode: 409,
+		},
+	}
+	for _, tt := range tests {
+		buf := strings.NewReader(tt.body)
+		req, _ := http.NewRequest(tt.method, tt.request, buf)
+		response := executeRequest(req, tt.emptydb)
+		if tt.expectedCode != response.Code {
+			t.Errorf("Expected response code %d. Got %d\n", tt.expectedCode, response.Code)
+		}
+	}
+}
+
+func TestApp_Export(t *testing.T) {
+	tests := []struct {
+		method       string
+		request      string
+		expectedCode int
+		emptydb      bool
+	}{
+		{
+			method:       "GET",
+			request:      "/export",
+			expectedCode: 200,
+		},
+		{
+			method:       "GET",
+			request:      "/export",
+			expectedCode: 500,
+			emptydb:      true,
+		},
+		{
+			method:       "POST",
+			request:      "/export",
+			expectedCode: 405,
+		},
+	}
+	for _, tt := range tests {
+		req, _ := http.NewRequest(tt.method, tt.request, nil)
+		response := executeRequest(req, tt.emptydb)
+		if tt.expectedCode != response.Code {
+			t.Errorf("Expected response code %d. Got %d\n", tt.expectedCode, response.Code)
+		}
 	}
 }
